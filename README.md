@@ -8,9 +8,8 @@ you add for what you run (hosts, Kubernetes, Docker, Postgres, MySQL, Redis, Mon
 Kafka, Redpanda, Temporal, NGINX, ClickHouse, any Prometheus endpoint, and OTLP from
 your own applications).
 
-This repository holds the releases and the Helm chart repository. Each release
-publishes three things under one version, `<upstream>-<n>`: the upstream collector
-release it wraps, then Struct's revision of it.
+Each release publishes three things under one version, `<upstream>-<n>`: the
+upstream collector release it wraps, then Struct's revision of it.
 
 | What | Where |
 |---|---|
@@ -72,6 +71,46 @@ docker run -e STRUCT_INGEST_KEY structai/struct-otel-collector:<version> \
 Each preset is one more `--config` argument. If Docker Hub's limits on anonymous pulls
 get in the way, use `ghcr.io/struct-dot-ai/struct-otel-collector:<version>`, the same
 image.
+
+## What is in this repository
+
+| Path | What |
+|---|---|
+| `Dockerfile` | The image: the upstream collector with `config/` baked in |
+| `config/config.yaml`, `config/presets/` | The base config and one file per preset |
+| `chart/struct-otel-collector/` | The Helm chart |
+| `install/install.sh` | The Linux installer; `scripts/build-installer.py` builds the single-file version a release publishes |
+| `scripts/release.py`, `scripts/publish.sh` | The release rules and checks, and the release commands |
+| `tests/` | The tests below |
+
+## Development
+
+The tests need Python 3.10 or later, [uv](https://docs.astral.sh/uv/) and Docker.
+
+```bash
+uv run python tests/test_install.py      # the installer, no Docker
+uv run python tests/test_configs.py      # every config and preset through the collector's own validate
+uv run python tests/test_chart.py        # the Helm chart
+uv run python tests/test_end_to_end.py   # the built image against a stand-in for Struct ingest
+uv run --group dev python -m pytest -q tests/test_release.py   # the release rules
+```
+
+`tests/manual_presets_live.py` and `tests/manual_install_live.py` run presets against real
+services and the installer under systemd, in containers. CI runs the default tests on every
+pull request.
+
+The upstream version is pinned in three places that change together: `FROM` in the
+`Dockerfile`, `UPSTREAM_VERSION` and its checksums in `install/install.sh`, and the chart's
+version.
+
+## Releasing
+
+A maintainer sets `version` and `appVersion` in `chart/struct-otel-collector/Chart.yaml` to
+the next `<upstream>-<n>`, merges that to `main`, and pushes the tag `v<version>` on that
+commit. The [release workflow](.github/workflows/release.yml) checks the tag, runs the tests,
+and waits for a second maintainer to approve. It then pushes the image to Docker Hub and to
+GitHub's registry, publishes the chart to the chart repository, and releases the installer
+last.
 
 ## Help
 

@@ -1,0 +1,32 @@
+# Preset: a self-hosted Temporal server's metrics (request counts, failures and
+# latency by operation, task queue backlog, schedule-to-start latency,
+# persistence latency), scraped from the Prometheus endpoint the server's
+# `metrics.prometheus.listenAddress` setting opens.
+#
+# For worker (SDK) metrics, add presets/prometheus.yaml pointed at the worker's
+# own endpoint, or send them with the Struct SDK. For Temporal Cloud no
+# collector is needed.
+#
+# Settings:
+#   STRUCT_TEMPORAL_ENDPOINT       default localhost:9090
+#   STRUCT_TEMPORAL_SCHEME         default http
+#   STRUCT_TEMPORAL_INTERVAL       default 60s
+#   STRUCT_TEMPORAL_SERVICE_NAME   default temporal-server
+
+receivers:
+  prometheus/temporal:
+    config:
+      scrape_configs:
+        - job_name: ${env:STRUCT_TEMPORAL_SERVICE_NAME:-temporal-server}
+          scrape_interval: ${env:STRUCT_TEMPORAL_INTERVAL:-60s}
+          scheme: ${env:STRUCT_TEMPORAL_SCHEME:-http}
+          metrics_path: /metrics
+          static_configs:
+            - targets: ["${env:STRUCT_TEMPORAL_ENDPOINT:-localhost:9090}"]
+
+service:
+  pipelines:
+    metrics/temporal:
+      receivers: [prometheus/temporal]
+      processors: [memory_limiter, resource_detection/struct]
+      exporters: [otlp_http/struct]

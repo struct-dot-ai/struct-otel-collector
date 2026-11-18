@@ -1,0 +1,87 @@
+# The Struct Collector image, published for linux/amd64 and linux/arm64. To run
+# an image you built yourself, push it where your cluster can pull it and set
+# repository and tag.
+image:
+  repository: docker.io/structai/struct-otel-collector
+  # Defaults to the chart's appVersion.
+  tag: ""
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+ingest:
+  url: https://ingest.struct.ai
+  # The workspace's ingest key (pk-...). Stored in a Secret this chart creates.
+  key: ""
+  # Or the name of a Secret you manage, holding the key under existingSecretKey.
+  existingSecret: ""
+  existingSecretKey: ingest-key
+
+# Stamped on everything sent, as deployment.environment.name (and the older
+# deployment.environment). For example: production.
+environment: ""
+# Stamped on everything sent, as k8s.cluster.name.
+clusterName: ""
+
+serviceAccount:
+  create: true
+  # Base name. The node and cluster collectors get separate accounts,
+  # <name>-node and <name>-cluster, each with only what it reads.
+  name: ""
+rbac:
+  create: true
+
+# One collector per node (a DaemonSet): the kubelet's stats for the node and
+# its pods and containers (CPU, memory, filesystem, network), and pod logs,
+# each with the pod's Kubernetes identity and the node's name.
+node:
+  enabled: true
+  # Preset files from the image, loaded in this order. The hosts preset is
+  # refused here: in a pod it would describe the pod, not the node.
+  presets:
+    - kubernetes-node
+  # The node's kubelet. $(K8S_NODE_IP) is the node's address (status.hostIP),
+  # filled in by Kubernetes. On a cluster whose nodes have IPv6 addresses, put
+  # it in brackets: "https://[$(K8S_NODE_IP)]:10250". An IPv4 address must not
+  # have them.
+  kubeletEndpoint: "https://$(K8S_NODE_IP):10250"
+  # Extra environment for the presets' settings (name/value or valueFrom).
+  env: []
+  # Collector YAML merged after the presets. Maps merge; lists replace.
+  extraConfig: {}
+  # Reads /var/log/pods, which is root-only on most nodes.
+  runAsUser: 0
+  # Keeps the export queue and the pod-log read positions on the node, so a
+  # restarted pod continues where it stopped.
+  stateHostPath: /var/lib/struct-otel-collector
+  resources:
+    requests:
+      cpu: 100m
+      memory: 200Mi
+    limits:
+      memory: 512Mi
+  tolerations: []
+  nodeSelector: {}
+  affinity: {}
+  priorityClassName: ""
+  podAnnotations: {}
+
+# One collector for the whole cluster (a Deployment with one replica; a second
+# would send every cluster metric twice): workload and node state, and events.
+# Also the place for presets that watch one service, such as redis or postgres.
+cluster:
+  enabled: true
+  presets:
+    - kubernetes-cluster
+  env: []
+  extraConfig: {}
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 512Mi
+  tolerations: []
+  nodeSelector: {}
+  affinity: {}
+  priorityClassName: ""
+  podAnnotations: {}

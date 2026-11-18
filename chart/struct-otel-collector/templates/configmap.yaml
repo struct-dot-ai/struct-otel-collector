@@ -1,0 +1,23 @@
+{{- if and .Values.node.enabled .Values.node.extraConfig }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "struct-otel-collector.fullname" . }}-node-extra
+  labels:
+    {{- include "struct-otel-collector.labels" . | nindent 4 }}
+data:
+  extra.yaml: |
+    {{- toYaml .Values.node.extraConfig | nindent 4 }}
+{{- end }}
+{{- if and .Values.cluster.enabled .Values.cluster.extraConfig }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "struct-otel-collector.fullname" . }}-cluster-extra
+  labels:
+    {{- include "struct-otel-collector.labels" . | nindent 4 }}
+data:
+  extra.yaml: |
+    {{- toYaml .Values.cluster.extraConfig | nindent 4 }}
+{{- end }}

@@ -1,0 +1,1 @@
+Copied into the image as /var/lib/struct-otel-collector so the state directory exists and is owned by the collector's user.

@@ -1,0 +1,41 @@
+# Preset: MySQL (and MariaDB) server metrics (connections, threads, buffer
+# pool, row operations, locks, replication delay).
+#
+# Settings:
+#   STRUCT_MYSQL_ENDPOINT       default localhost:3306
+#   STRUCT_MYSQL_USERNAME       required
+#   STRUCT_MYSQL_PASSWORD       required
+#   STRUCT_MYSQL_TLS_INSECURE   default false; true connects without TLS
+#   STRUCT_MYSQL_INTERVAL       default 60s
+#   STRUCT_MYSQL_SERVICE_NAME   default mysql
+
+receivers:
+  mysql:
+    endpoint: ${env:STRUCT_MYSQL_ENDPOINT:-localhost:3306}
+    username: ${env:STRUCT_MYSQL_USERNAME}
+    password: ${env:STRUCT_MYSQL_PASSWORD}
+    collection_interval: ${env:STRUCT_MYSQL_INTERVAL:-60s}
+    tls:
+      insecure: ${env:STRUCT_MYSQL_TLS_INSECURE:-false}
+    # Upstream 0.162.0 began adding these two to every resource. They are off
+    # here so the server is named as it was, by mysql.instance.endpoint alone.
+    # Remove them to take upstream's default.
+    resource_attributes:
+      server.address:
+        enabled: false
+      server.port:
+        enabled: false
+
+processors:
+  resource/mysql:
+    attributes:
+      - key: service.name
+        value: ${env:STRUCT_MYSQL_SERVICE_NAME:-mysql}
+        action: insert
+
+service:
+  pipelines:
+    metrics/mysql:
+      receivers: [mysql]
+      processors: [memory_limiter, resource/mysql, resource_detection/struct]
+      exporters: [otlp_http/struct]

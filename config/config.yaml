@@ -1,0 +1,137 @@
+# Struct Collector base config.
+#
+# A stock OpenTelemetry Collector (contrib) config: everything here is upstream
+# components and settings, wired to Struct ingest. Integration presets live in
+# presets/ and are added with extra --config arguments, for example:
+#
+#   --config=/etc/struct-otel-collector/config.yaml
+#   --config=/etc/struct-otel-collector/presets/hosts.yaml
+#   --config=/etc/struct-otel-collector/presets/redis.yaml
+#
+# Collector config merging merges maps and REPLACES lists. So a preset never
+# appends to a list defined here: each one adds its own receivers and its own
+# named pipeline, and reuses the processors and the exporter defined below.
+# The one list no preset may redefine is service.extensions.
+#
+# Settings (environment variables):
+#   STRUCT_INGEST_KEY                    required; the workspace's ingest key (pk-...)
+#   STRUCT_INGEST_URL                    default https://ingest.struct.ai
+#   OTEL_RESOURCE_ATTRIBUTES             optional, for example
+#                                        deployment.environment.name=production,deployment.environment=production
+#   STRUCT_COLLECTOR_STATE_DIR           default /var/lib/struct-otel-collector
+#   STRUCT_COLLECTOR_RESOURCE_DETECTORS  default [env, system, ec2, ecs, gcp, azure]; see resource_detection/struct
+#   STRUCT_COLLECTOR_MEMORY_LIMIT_MIB    default 400
+#   STRUCT_COLLECTOR_MEMORY_SPIKE_MIB    default 100
+#   STRUCT_COLLECTOR_HEALTH_ENDPOINT     default 0.0.0.0:13133
+#   STRUCT_COLLECTOR_SELF_METRICS_PORT   default 8888 (loopback only)
+
+extensions:
+  health_check:
+    endpoint: ${env:STRUCT_COLLECTOR_HEALTH_ENDPOINT:-0.0.0.0:13133}
+  # Holds the export queue (and, in Kubernetes, the pod-log read positions), so
+  # a restart resumes instead of losing what was waiting. It lasts only as long
+  # as the directory does: mount a volume there to keep it when the container
+  # is replaced.
+  file_storage/struct:
+    directory: ${env:STRUCT_COLLECTOR_STATE_DIR:-/var/lib/struct-otel-collector}
+    create_directory: true
+    timeout: 2s
+
+receivers:
+  # The collector's own metrics: the liveness signal for this install, and the
+  # counts of what it sent and what it failed to send.
+  prometheus/self:
+    config:
+      scrape_configs:
+        - job_name: struct-otel-collector
+          scrape_interval: 60s
+          static_configs:
+            - targets: ["127.0.0.1:${env:STRUCT_COLLECTOR_SELF_METRICS_PORT:-8888}"]
+
+processors:
+  # First in every pipeline. A fixed size, not a percentage: on a host a
+  # percentage would be a share of the whole machine's memory.
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: ${env:STRUCT_COLLECTOR_MEMORY_LIMIT_MIB:-400}
+    spike_limit_mib: ${env:STRUCT_COLLECTOR_MEMORY_SPIKE_MIB:-100}
+  # Host and cloud identity. `env` reads OTEL_RESOURCE_ATTRIBUTES, which is
+  # where the deployment environment comes from. Nothing a receiver or a preset
+  # already set is replaced, and where two detectors find the same attribute
+  # the earlier one keeps it. A cloud detector that is not on its cloud finds
+  # nothing and adds nothing.
+  #
+  # The detectors describe where the collector runs. That is the machine being
+  # measured only when the collector runs on it directly (the Linux install).
+  # In a pod `system` finds the pod's name, and the cloud detectors find
+  # whichever node the pod landed on, so the Helm chart narrows the list and
+  # names the node itself (STRUCT_COLLECTOR_RESOURCE_DETECTORS, a YAML list).
+  resource_detection/struct:
+    detectors: ${env:STRUCT_COLLECTOR_RESOURCE_DETECTORS:-[env, system, ec2, ecs, gcp, azure]}
+    timeout: 2s
+    override: false
+    system:
+      hostname_sources: [os]
+
+exporters:
+  # Struct ingest: OTLP over HTTP only, the ingest key in x-struct-ingest-key,
+  # a request body of at most 2 MiB on the wire and 16 MiB after gzip.
+  # Requests are merged up to, and split at, 1.5 MB of uncompressed OTLP, so a
+  # request fits the limit whether or not it compresses. A record count cannot
+  # bound a request: one log line can be large.
+  otlp_http/struct:
+    endpoint: ${env:STRUCT_INGEST_URL:-https://ingest.struct.ai}
+    headers:
+      x-struct-ingest-key: ${env:STRUCT_INGEST_KEY}
+    compression: gzip
+    timeout: 10s
+    sending_queue:
+      enabled: true
+      storage: file_storage/struct
+      num_consumers: 2
+      # What may wait on disk while ingest cannot be reached: 100 MB of
+      # uncompressed OTLP for each signal sent (metrics and logs have a queue
+      # each). Counted in bytes, because what arrives is counted before it is
+      # split into requests: a count of requests would let one large scrape or
+      # one burst of logs take many times the space. When the queue is full,
+      # new data is dropped (and counted in the collector's own metrics)
+      # instead of stalling the receivers.
+      sizer: bytes
+      queue_size: 100000000
+      block_on_overflow: false
+      batch:
+        flush_timeout: 10s
+        sizer: bytes
+        min_size: 1000000
+        max_size: 1500000
+    # A request ingest could not take (it is unreachable, or answers 429, 502,
+    # 503 or 504) is sent again until it is taken. Nothing gives up after a
+    # time, so the queue's size above is the one thing that decides how long an
+    # outage is survived. A request ingest refuses for good (400, 401, 413) is
+    # dropped at once and counted.
+    retry_on_failure:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 30s
+      max_elapsed_time: 0s
+
+service:
+  extensions: [health_check, file_storage/struct]
+  telemetry:
+    # The name the collector's own metrics arrive under.
+    resource:
+      attributes:
+        - name: service.name
+          value: struct-otel-collector
+    metrics:
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: 127.0.0.1
+                port: ${env:STRUCT_COLLECTOR_SELF_METRICS_PORT:-8888}
+  pipelines:
+    metrics/self:
+      receivers: [prometheus/self]
+      processors: [memory_limiter, resource_detection/struct]
+      exporters: [otlp_http/struct]

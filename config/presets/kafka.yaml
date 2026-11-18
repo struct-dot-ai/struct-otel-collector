@@ -1,0 +1,36 @@
+# Preset: Kafka cluster metrics read over the Kafka protocol: broker count,
+# partitions and replicas per topic, in-sync replicas, and consumer group lag
+# and offsets. Works against Apache Kafka and against Redpanda, which speaks
+# the same protocol; for a Redpanda broker's own internals add presets/redpanda.yaml.
+#
+# This connects without TLS or SASL. For a secured cluster, add your own config
+# file after this one that sets receivers.kafka_metrics.tls and
+# receivers.kafka_metrics.auth: maps merge, so it only needs those keys. The
+# Linux installer takes the file with --extra-config, the Helm chart with
+# node.extraConfig or cluster.extraConfig.
+#
+# Settings:
+#   STRUCT_KAFKA_BROKER         default localhost:9092; one bootstrap broker,
+#                               the client finds the rest
+#   STRUCT_KAFKA_INTERVAL       default 60s
+#   STRUCT_KAFKA_SERVICE_NAME   default kafka
+
+receivers:
+  kafka_metrics:
+    brokers: ["${env:STRUCT_KAFKA_BROKER:-localhost:9092}"]
+    scrapers: [brokers, topics, consumers]
+    collection_interval: ${env:STRUCT_KAFKA_INTERVAL:-60s}
+
+processors:
+  resource/kafka:
+    attributes:
+      - key: service.name
+        value: ${env:STRUCT_KAFKA_SERVICE_NAME:-kafka}
+        action: insert
+
+service:
+  pipelines:
+    metrics/kafka:
+      receivers: [kafka_metrics]
+      processors: [memory_limiter, resource/kafka, resource_detection/struct]
+      exporters: [otlp_http/struct]

@@ -1,0 +1,33 @@
+# Preset: per-container CPU, memory, network and block I/O from the Docker
+# Engine on this host.
+#
+# The collector needs to read the Docker socket: mount it into the container
+# and add the socket's group (docker run --group-add), or add the collector's
+# user to the docker group on a host install.
+#
+# Settings:
+#   STRUCT_DOCKER_ENDPOINT       default unix:///var/run/docker.sock
+#   STRUCT_DOCKER_INTERVAL       default 60s
+#   STRUCT_DOCKER_SERVICE_NAME   default docker
+
+receivers:
+  docker_stats:
+    endpoint: ${env:STRUCT_DOCKER_ENDPOINT:-unix:///var/run/docker.sock}
+    collection_interval: ${env:STRUCT_DOCKER_INTERVAL:-60s}
+    timeout: 10s
+    # Docker Engine 29 refuses API versions below 1.44.
+    api_version: "1.44"
+
+processors:
+  resource/docker:
+    attributes:
+      - key: service.name
+        value: ${env:STRUCT_DOCKER_SERVICE_NAME:-docker}
+        action: insert
+
+service:
+  pipelines:
+    metrics/docker:
+      receivers: [docker_stats]
+      processors: [memory_limiter, resource/docker, resource_detection/struct]
+      exporters: [otlp_http/struct]

@@ -1,0 +1,41 @@
+# Preset: cluster-wide Kubernetes state. Run exactly one collector with it per
+# cluster (the chart's Deployment): node conditions, workload replica counts,
+# pod phases and container restarts as metrics, and Kubernetes events as logs.
+#
+# Needs a service account that can list and watch the cluster's workloads and
+# events (the chart creates it).
+#
+# Settings:
+#   STRUCT_KUBERNETES_INTERVAL       default 60s
+#   STRUCT_KUBERNETES_SERVICE_NAME   default kubernetes
+
+receivers:
+  k8s_cluster:
+    auth_type: serviceAccount
+    collection_interval: ${env:STRUCT_KUBERNETES_INTERVAL:-60s}
+    node_conditions_to_report: [Ready, MemoryPressure, DiskPressure, PIDPressure]
+    allocatable_types_to_report: [cpu, memory]
+  k8s_objects/events:
+    auth_type: serviceAccount
+    objects:
+      - name: events
+        mode: watch
+        group: events.k8s.io
+
+processors:
+  resource/kubernetes_cluster:
+    attributes:
+      - key: service.name
+        value: ${env:STRUCT_KUBERNETES_SERVICE_NAME:-kubernetes}
+        action: insert
+
+service:
+  pipelines:
+    metrics/kubernetes_cluster:
+      receivers: [k8s_cluster]
+      processors: [memory_limiter, resource/kubernetes_cluster, resource_detection/struct]
+      exporters: [otlp_http/struct]
+    logs/kubernetes_events:
+      receivers: [k8s_objects/events]
+      processors: [memory_limiter, resource/kubernetes_cluster, resource_detection/struct]
+      exporters: [otlp_http/struct]

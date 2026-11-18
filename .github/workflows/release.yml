@@ -1,0 +1,140 @@
+name: Release
+run-name: Release ${{ github.ref_name }}
+
+# Pushing a tag v<version> releases the Struct Collector:
+#
+#   docker.io/structai/struct-otel-collector:<version>      the image, linux/amd64 and linux/arm64
+#   ghcr.io/struct-dot-ai/struct-otel-collector:<version>  the same image, a copy
+#   https://struct-dot-ai.github.io/struct-otel-collector   the Helm chart repository (gh-pages)
+#   release v<version>                                      the single-file installer and its .sha256
+#
+# <version> must equal `version` in chart/struct-otel-collector/Chart.yaml at the
+# tagged commit, which must be on main. The rules and checks are scripts/release.py;
+# the commands are scripts/publish.sh. This repository's own token pushes to GitHub's
+# registry, the gh-pages branch and the release. The one secret is Docker Hub's,
+# kept in the struct-otel-collector-release environment: nothing is pushed anywhere
+# before a reviewer approves that environment.
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.plan.outputs.version }}
+      upstream: ${{ steps.plan.outputs.upstream }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Check the tag and its commit on main; refuse a version that is published or older
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/release.py plan
+
+  test:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      UPSTREAM: ${{ needs.plan.outputs.upstream }}
+      UPSTREAM_IMAGE: ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v5
+      - name: Run release rule tests
+        run: uv run --group dev python -m pytest -q tests/test_release.py
+      - name: Run install script tests
+        run: uv run python tests/test_install.py
+      - name: Pull the upstream image under the name the Dockerfile uses
+        run: |
+          docker pull "$UPSTREAM_IMAGE:$UPSTREAM"
+          docker tag "$UPSTREAM_IMAGE:$UPSTREAM" "otel/opentelemetry-collector-contrib:$UPSTREAM"
+      - name: Run config tests
+        run: uv run python tests/test_configs.py
+      - name: Run chart tests
+        run: uv run python tests/test_chart.py
+      - name: Run end-to-end tests
+        run: uv run python tests/test_end_to_end.py
+
+  publish:
+    needs: [plan, test]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: struct-otel-collector-release
+    permissions:
+      contents: write
+      packages: write
+    env:
+      VERSION: ${{ needs.plan.outputs.version }}
+      UPSTREAM: ${{ needs.plan.outputs.upstream }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: docker/setup-buildx-action@v3
+      - name: Build the image, the chart package and the installer
+        run: bash scripts/publish.sh build
+      - name: Check that nothing internal is in any of them
+        run: >-
+          python3 scripts/release.py check-contents
+          --image-files dist/image-files.txt
+          --chart "dist/struct-otel-collector-$VERSION.tgz"
+          --installer dist/struct-otel-collector-install.sh
+      - name: Sign in to Docker Hub and GitHub's registry
+        env:
+          DOCKERHUB_USER: ${{ vars.STRUCT_OTEL_COLLECTOR_DOCKERHUB_USER }}
+          DOCKERHUB_TOKEN: ${{ secrets.STRUCT_OTEL_COLLECTOR_DOCKERHUB_TOKEN }}
+          GHCR_TOKEN: ${{ github.token }}
+        run: |
+          if [[ -z "$DOCKERHUB_USER" || -z "$DOCKERHUB_TOKEN" ]]; then
+            echo "::error::The struct-otel-collector-release environment needs the variable STRUCT_OTEL_COLLECTOR_DOCKERHUB_USER and the secret STRUCT_OTEL_COLLECTOR_DOCKERHUB_TOKEN."
+            exit 1
+          fi
+          printf '%s' "$DOCKERHUB_TOKEN" | docker login docker.io --username "$DOCKERHUB_USER" --password-stdin
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "${{ github.actor }}" --password-stdin
+      - name: Push the image for linux/amd64 and linux/arm64, under both names
+        run: bash scripts/publish.sh push-image
+      - name: Sign out of the registries
+        if: always()
+        run: |
+          docker logout docker.io || true
+          docker logout ghcr.io || true
+      - name: Check that anyone can pull the image under both names, as published
+        run: python3 scripts/release.py check-public
+      - name: Publish the chart to the chart repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/publish.sh push-chart
+      - name: Check that anyone can add the chart repository and get this chart
+        run: python3 scripts/release.py check-chart
+      - name: Release the installer, last
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/publish.sh release
+      - name: Check that anyone can download the installer, as built
+        run: python3 scripts/release.py check-installer --installer dist/struct-otel-collector-install.sh

@@ -1,0 +1,88 @@
+{{- if .Values.rbac.create }}
+{{- if .Values.node.enabled }}
+# The node collector: the kubelet's stats for its own node, and the pod
+# metadata it stamps on metrics and logs. Read-only. Pods and namespaces are all
+# it watches: a pod's node comes from the pod, and its Deployment from the name
+# of the ReplicaSet that owns it.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "struct-otel-collector.fullname" . }}-node
+  labels:
+    {{- include "struct-otel-collector.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["nodes/stats"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["pods", "namespaces"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "struct-otel-collector.fullname" . }}-node
+  labels:
+    {{- include "struct-otel-collector.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "struct-otel-collector.fullname" . }}-node
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "struct-otel-collector.serviceAccountBase" . }}-node
+    namespace: {{ .Release.Namespace }}
+{{- end }}
+{{- if .Values.cluster.enabled }}
+---
+# The cluster collector: the state of nodes and workloads, and events. Read-only.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "struct-otel-collector.fullname" . }}-cluster
+  labels:
+    {{- include "struct-otel-collector.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources:
+      - events
+      - namespaces
+      - namespaces/status
+      - nodes
+      - nodes/spec
+      - pods
+      - pods/status
+      - replicationcontrollers
+      - replicationcontrollers/status
+      - resourcequotas
+      - services
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["daemonsets", "deployments", "replicasets", "statefulsets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["batch"]
+    resources: ["jobs", "cronjobs"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["autoscaling"]
+    resources: ["horizontalpodautoscalers"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["events.k8s.io"]
+    resources: ["events"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "struct-otel-collector.fullname" . }}-cluster
+  labels:
+    {{- include "struct-otel-collector.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "struct-otel-collector.fullname" . }}-cluster
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "struct-otel-collector.serviceAccountBase" . }}-cluster
+    namespace: {{ .Release.Namespace }}
+{{- end }}
+{{- end }}

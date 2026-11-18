@@ -1,0 +1,28 @@
+# Preset: NGINX connection and request metrics from its stub_status page.
+#
+# NGINX has to expose the page first: a `location /status { stub_status; }`
+# block, reachable from the collector only.
+#
+# Settings:
+#   STRUCT_NGINX_STATUS_URL     default http://localhost:80/status
+#   STRUCT_NGINX_INTERVAL       default 60s
+#   STRUCT_NGINX_SERVICE_NAME   default nginx
+
+receivers:
+  nginx:
+    endpoint: ${env:STRUCT_NGINX_STATUS_URL:-http://localhost:80/status}
+    collection_interval: ${env:STRUCT_NGINX_INTERVAL:-60s}
+
+processors:
+  resource/nginx:
+    attributes:
+      - key: service.name
+        value: ${env:STRUCT_NGINX_SERVICE_NAME:-nginx}
+        action: insert
+
+service:
+  pipelines:
+    metrics/nginx:
+      receivers: [nginx]
+      processors: [memory_limiter, resource/nginx, resource_detection/struct]
+      exporters: [otlp_http/struct]

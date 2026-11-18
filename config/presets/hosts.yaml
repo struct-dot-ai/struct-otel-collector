@@ -1,0 +1,117 @@
+# Preset: host metrics (CPU, memory, load, disk, filesystems, network, paging,
+# process counts) from the machine the collector runs on.
+#
+# For the Linux install, where the collector runs on the machine itself. In a
+# container it describes what the container sees: mounting the host's root
+# (STRUCT_HOSTS_ROOT_PATH) corrects the filesystems, CPU and memory, but the
+# network figures are those of the container's own network unless it runs with
+# the host's, and the host name is the container's unless
+# OTEL_RESOURCE_ATTRIBUTES sets host.name. The Helm chart refuses this preset:
+# a Kubernetes node's figures come from the kubelet (kubernetes-node).
+#
+# Settings:
+#   STRUCT_HOSTS_INTERVAL       default 60s
+#   STRUCT_HOSTS_SERVICE_NAME   default host
+#   STRUCT_HOSTS_ROOT_PATH      default /. In a container, mount the host's
+#                               root filesystem read-only (for example at
+#                               /hostfs) and set this to that path.
+
+receivers:
+  host_metrics:
+    collection_interval: ${env:STRUCT_HOSTS_INTERVAL:-60s}
+    root_path: ${env:STRUCT_HOSTS_ROOT_PATH:-/}
+    scrapers:
+      cpu:
+        metrics:
+          system.cpu.utilization:
+            enabled: true
+      memory:
+        metrics:
+          system.memory.utilization:
+            enabled: true
+      load:
+      disk:
+      filesystem:
+        metrics:
+          system.filesystem.utilization:
+            enabled: true
+        exclude_fs_types:
+          match_type: strict
+          fs_types:
+            - autofs
+            - binfmt_misc
+            - bpf
+            - cgroup2
+            - configfs
+            - debugfs
+            - devpts
+            - devtmpfs
+            - fusectl
+            - hugetlbfs
+            - iso9660
+            - mqueue
+            - nsfs
+            - overlay
+            - proc
+            - procfs
+            - pstore
+            - rpc_pipefs
+            - securityfs
+            - selinuxfs
+            - squashfs
+            - sysfs
+            - tmpfs
+            - tracefs
+        exclude_mount_points:
+          match_type: regexp
+          mount_points:
+            - /dev/.*
+            - /proc/.*
+            - /sys/.*
+            - /run/.*
+            - /var/lib/docker/.*
+            - /var/lib/kubelet/.*
+            - /snap/.*
+      network:
+        exclude:
+          match_type: regexp
+          interfaces:
+            - lo
+            - veth.*
+            - docker.*
+            - br-.*
+            - cali.*
+            - cni.*
+            - flannel.*
+      paging:
+      processes:
+
+processors:
+  resource/hosts:
+    attributes:
+      - key: service.name
+        value: ${env:STRUCT_HOSTS_SERVICE_NAME:-host}
+        action: insert
+  # One series per CPU state for the whole machine, not one per core: a
+  # 64-core host would otherwise send 500 CPU series a minute.
+  metrics_transform/hosts:
+    transforms:
+      - include: system.cpu.time
+        action: update
+        operations:
+          - action: aggregate_labels
+            label_set: [state]
+            aggregation_type: sum
+      - include: system.cpu.utilization
+        action: update
+        operations:
+          - action: aggregate_labels
+            label_set: [state]
+            aggregation_type: mean
+
+service:
+  pipelines:
+    metrics/hosts:
+      receivers: [host_metrics]
+      processors: [memory_limiter, metrics_transform/hosts, resource/hosts, resource_detection/struct]
+      exporters: [otlp_http/struct]

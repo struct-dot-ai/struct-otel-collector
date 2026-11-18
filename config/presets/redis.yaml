@@ -1,0 +1,34 @@
+# Preset: Redis (and Valkey) server metrics (memory, clients, commands, keys,
+# evictions, keyspace hits and misses, replication).
+#
+# Settings:
+#   STRUCT_REDIS_ENDPOINT       default localhost:6379
+#   STRUCT_REDIS_USERNAME       optional (Redis 6 ACL user)
+#   STRUCT_REDIS_PASSWORD       optional
+#   STRUCT_REDIS_TLS_INSECURE   default true (no TLS, the receiver's own
+#                               default); false connects with TLS
+#   STRUCT_REDIS_INTERVAL       default 60s
+#   STRUCT_REDIS_SERVICE_NAME   default redis
+
+receivers:
+  redis:
+    endpoint: ${env:STRUCT_REDIS_ENDPOINT:-localhost:6379}
+    username: ${env:STRUCT_REDIS_USERNAME:-}
+    password: ${env:STRUCT_REDIS_PASSWORD:-}
+    collection_interval: ${env:STRUCT_REDIS_INTERVAL:-60s}
+    tls:
+      insecure: ${env:STRUCT_REDIS_TLS_INSECURE:-true}
+
+processors:
+  resource/redis:
+    attributes:
+      - key: service.name
+        value: ${env:STRUCT_REDIS_SERVICE_NAME:-redis}
+        action: insert
+
+service:
+  pipelines:
+    metrics/redis:
+      receivers: [redis]
+      processors: [memory_limiter, resource/redis, resource_detection/struct]
+      exporters: [otlp_http/struct]

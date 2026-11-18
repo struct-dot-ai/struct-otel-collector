@@ -1,0 +1,111 @@
+{{- if .Values.cluster.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "struct-otel-collector.fullname" . }}-cluster
+  labels:
+    {{- include "struct-otel-collector.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cluster
+spec:
+  # Exactly one: a second replica would send every cluster metric and event twice.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "struct-otel-collector.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: cluster
+  template:
+    metadata:
+      labels:
+        {{- include "struct-otel-collector.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: cluster
+      annotations:
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        checksum/extra-config: {{ toYaml .Values.cluster.extraConfig | sha256sum }}
+        {{- with .Values.cluster.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "struct-otel-collector.serviceAccountBase" . }}-cluster
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.cluster.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+      containers:
+        - name: collector
+          image: {{ include "struct-otel-collector.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            {{- include "struct-otel-collector.args" .Values.cluster | nindent 12 }}
+          env:
+            {{- include "struct-otel-collector.commonEnv" . | nindent 12 }}
+            # What this collector sends is about the cluster, or about a service
+            # it watches, never about the pod or the node it happens to run on.
+            # So only `env` detects: no host name, no host or cloud instance ID.
+            {{- with (include "struct-otel-collector.resourceAttributes" (dict "root" . "extra" (list))) }}
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: {{ . | quote }}
+            {{- end }}
+            - name: STRUCT_COLLECTOR_RESOURCE_DETECTORS
+              value: "[env]"
+            {{- with .Values.cluster.env }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: health
+              containerPort: 13133
+          livenessProbe:
+            httpGet:
+              path: /
+              port: health
+            initialDelaySeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /
+              port: health
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            {{- toYaml .Values.cluster.resources | nindent 12 }}
+          volumeMounts:
+            # The export queue. It lasts as long as the pod, not across pods.
+            - name: state
+              mountPath: /var/lib/struct-otel-collector
+            {{- if .Values.cluster.extraConfig }}
+            - name: extra-config
+              mountPath: /etc/struct-otel-collector-extra
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: state
+          emptyDir: {}
+        {{- if .Values.cluster.extraConfig }}
+        - name: extra-config
+          configMap:
+            name: {{ include "struct-otel-collector.fullname" . }}-cluster-extra
+        {{- end }}
+      {{- with .Values.cluster.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.cluster.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.cluster.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

@@ -1,0 +1,42 @@
+# Preset: PostgreSQL server metrics (connections, commits and rollbacks,
+# deadlocks, table and index sizes, replication delay, background writer).
+#
+# Use a monitoring role, for example one granted pg_monitor. For managed
+# Postgres that Struct can pull from directly, no collector is needed.
+#
+# Settings:
+#   STRUCT_POSTGRES_ENDPOINT       default localhost:5432
+#   STRUCT_POSTGRES_USERNAME       required
+#   STRUCT_POSTGRES_PASSWORD       required
+#   STRUCT_POSTGRES_TLS_INSECURE   default false; true connects without TLS
+#   STRUCT_POSTGRES_INTERVAL       default 60s
+#   STRUCT_POSTGRES_SERVICE_NAME   default postgresql
+
+receivers:
+  postgresql:
+    endpoint: ${env:STRUCT_POSTGRES_ENDPOINT:-localhost:5432}
+    transport: tcp
+    username: ${env:STRUCT_POSTGRES_USERNAME}
+    password: ${env:STRUCT_POSTGRES_PASSWORD}
+    collection_interval: ${env:STRUCT_POSTGRES_INTERVAL:-60s}
+    # No deadline on a collection, as before upstream 0.163.0, whose default
+    # became 60s: a collection that needs longer (a server with very many
+    # tables) still finishes, and one whose query is blocked waits with it.
+    # Remove this line to take upstream's default.
+    timeout: 0s
+    tls:
+      insecure: ${env:STRUCT_POSTGRES_TLS_INSECURE:-false}
+
+processors:
+  resource/postgres:
+    attributes:
+      - key: service.name
+        value: ${env:STRUCT_POSTGRES_SERVICE_NAME:-postgresql}
+        action: insert
+
+service:
+  pipelines:
+    metrics/postgres:
+      receivers: [postgresql]
+      processors: [memory_limiter, resource/postgres, resource_detection/struct]
+      exporters: [otlp_http/struct]

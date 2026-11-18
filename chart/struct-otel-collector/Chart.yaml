@@ -1,0 +1,18 @@
+apiVersion: v2
+name: struct-otel-collector
+description: >-
+  The Struct Collector for Kubernetes: one collector per node for node, pod and
+  container metrics and pod logs, and one for cluster state and events, all sent
+  to Struct ingest.
+type: application
+# The release: <upstream>-<n>, the upstream OpenTelemetry Collector (contrib)
+# release the image wraps, then Struct's revision of it, from 1. The image, this
+# chart and the installer are published under it, from a tag that names it
+# (scripts/release.py has the rules). Helm reads it as a pre-release, so an
+# install names it with --version.
+version: 0.165.0-1
+# The image the chart deploys by default: the same release. The package's tests
+# check its upstream part against the Dockerfile and the install script.
+appVersion: "0.165.0-1"
+sources:
+  - https://github.com/struct-dot-ai/struct-otel-collector

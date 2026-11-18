@@ -1,0 +1,43 @@
+# Preset: MongoDB server metrics (connections, operations, memory, cache,
+# document and index counts, collection and data sizes).
+#
+# Use a user with the clusterMonitor role. For MongoDB Atlas, use Atlas's own
+# OpenTelemetry export instead; no collector is needed.
+#
+# Settings:
+#   STRUCT_MONGODB_ENDPOINT       default localhost:27017
+#   STRUCT_MONGODB_USERNAME       optional
+#   STRUCT_MONGODB_PASSWORD       optional
+#   STRUCT_MONGODB_TLS_INSECURE   default false; true connects without TLS
+#   STRUCT_MONGODB_INTERVAL       default 60s
+#   STRUCT_MONGODB_SERVICE_NAME   default mongodb
+
+receivers:
+  mongodb:
+    hosts:
+      - endpoint: ${env:STRUCT_MONGODB_ENDPOINT:-localhost:27017}
+    username: ${env:STRUCT_MONGODB_USERNAME:-}
+    password: ${env:STRUCT_MONGODB_PASSWORD:-}
+    collection_interval: ${env:STRUCT_MONGODB_INTERVAL:-60s}
+    tls:
+      insecure: ${env:STRUCT_MONGODB_TLS_INSECURE:-false}
+    # Upstream 0.163.0 began adding server.port to every resource. It is off
+    # here so the server is named as it was, by server.address alone. Remove it
+    # to take upstream's default.
+    resource_attributes:
+      server.port:
+        enabled: false
+
+processors:
+  resource/mongodb:
+    attributes:
+      - key: service.name
+        value: ${env:STRUCT_MONGODB_SERVICE_NAME:-mongodb}
+        action: insert
+
+service:
+  pipelines:
+    metrics/mongodb:
+      receivers: [mongodb]
+      processors: [memory_limiter, resource/mongodb, resource_detection/struct]
+      exporters: [otlp_http/struct]

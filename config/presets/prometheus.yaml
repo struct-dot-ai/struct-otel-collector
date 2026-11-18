@@ -1,0 +1,38 @@
+# Preset: scrape one Prometheus endpoint. For anything that already exposes
+# Prometheus metrics and has no preset of its own.
+#
+# This is a single target with no authentication. For several targets, basic
+# auth, a bearer token or service discovery, add your own config file after
+# this one with a full receivers.prometheus/<name> block and its own pipeline,
+# copying the pipeline below.
+#
+# Classic Prometheus histograms can be alerted on. Native (exponential)
+# histograms and Prometheus summaries are stored, but Struct monitors cannot
+# read them yet.
+#
+# Settings:
+#   STRUCT_PROMETHEUS_TARGET     required; host:port
+#   STRUCT_PROMETHEUS_JOB        default prometheus; becomes service.name, unless
+#                                the endpoint names itself (an OpenTelemetry
+#                                target_info series with service_name)
+#   STRUCT_PROMETHEUS_PATH       default /metrics
+#   STRUCT_PROMETHEUS_SCHEME     default http
+#   STRUCT_PROMETHEUS_INTERVAL   default 60s
+
+receivers:
+  prometheus/scrape:
+    config:
+      scrape_configs:
+        - job_name: ${env:STRUCT_PROMETHEUS_JOB:-prometheus}
+          scrape_interval: ${env:STRUCT_PROMETHEUS_INTERVAL:-60s}
+          scheme: ${env:STRUCT_PROMETHEUS_SCHEME:-http}
+          metrics_path: ${env:STRUCT_PROMETHEUS_PATH:-/metrics}
+          static_configs:
+            - targets: ["${env:STRUCT_PROMETHEUS_TARGET}"]
+
+service:
+  pipelines:
+    metrics/prometheus:
+      receivers: [prometheus/scrape]
+      processors: [memory_limiter, resource_detection/struct]
+      exporters: [otlp_http/struct]

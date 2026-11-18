@@ -1,0 +1,124 @@
+{{- if .Values.node.enabled }}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "struct-otel-collector.fullname" . }}-node
+  labels:
+    {{- include "struct-otel-collector.labels" . | nindent 4 }}
+    app.kubernetes.io/component: node
+spec:
+  selector:
+    matchLabels:
+      {{- include "struct-otel-collector.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: node
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        {{- include "struct-otel-collector.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: node
+      annotations:
+        # Restart the pods when the key or the extra config changes.
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        checksum/extra-config: {{ toYaml .Values.node.extraConfig | sha256sum }}
+        {{- with .Values.node.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "struct-otel-collector.serviceAccountBase" . }}-node
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.node.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      securityContext:
+        runAsUser: {{ .Values.node.runAsUser }}
+        runAsGroup: {{ .Values.node.runAsUser }}
+      containers:
+        - name: collector
+          image: {{ include "struct-otel-collector.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            {{- include "struct-otel-collector.args" .Values.node | nindent 12 }}
+          env:
+            {{- include "struct-otel-collector.commonEnv" . | nindent 12 }}
+            # Everything this collector sends is about its node, so the node's
+            # name is its identity: a replaced pod is still the same node. `env`
+            # is the first detector, so these win over what `system` finds (the
+            # pod's own name). The cloud detectors stay: on a node they find it.
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: {{ include "struct-otel-collector.resourceAttributes" (dict "root" . "extra" (list "k8s.node.name=$(K8S_NODE_NAME)" "host.name=$(K8S_NODE_NAME)")) | quote }}
+            - name: STRUCT_KUBELET_ENDPOINT
+              value: {{ required "node.kubeletEndpoint is required: the node's kubelet, for example https://$(K8S_NODE_IP):10250" .Values.node.kubeletEndpoint | quote }}
+            {{- with .Values.node.env }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: health
+              containerPort: 13133
+          livenessProbe:
+            httpGet:
+              path: /
+              port: health
+            initialDelaySeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /
+              port: health
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+              # Root without capabilities cannot read other users' files; pod
+              # log files and their directories belong to root or the runtime.
+              add: ["DAC_READ_SEARCH"]
+          resources:
+            {{- toYaml .Values.node.resources | nindent 12 }}
+          volumeMounts:
+            - name: pod-logs
+              mountPath: /var/log/pods
+              readOnly: true
+            # With the Docker runtime, /var/log/pods holds links into here.
+            - name: docker-containers
+              mountPath: /var/lib/docker/containers
+              readOnly: true
+            - name: state
+              mountPath: /var/lib/struct-otel-collector
+            {{- if .Values.node.extraConfig }}
+            - name: extra-config
+              mountPath: /etc/struct-otel-collector-extra
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: pod-logs
+          hostPath:
+            path: /var/log/pods
+        - name: docker-containers
+          hostPath:
+            path: /var/lib/docker/containers
+        - name: state
+          hostPath:
+            path: {{ .Values.node.stateHostPath }}
+            type: DirectoryOrCreate
+        {{- if .Values.node.extraConfig }}
+        - name: extra-config
+          configMap:
+            name: {{ include "struct-otel-collector.fullname" . }}-node-extra
+        {{- end }}
+      {{- with .Values.node.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.node.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.node.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

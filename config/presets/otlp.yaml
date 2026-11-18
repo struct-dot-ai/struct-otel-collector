@@ -1,0 +1,49 @@
+# Preset: accept OTLP from applications and pass it on to Struct. For software
+# that already speaks OpenTelemetry (an SDK, another collector) and should send
+# through this collector instead of straight to Struct ingest: it then needs no
+# ingest key of its own, and what it sends waits in this collector's queue
+# while ingest cannot be reached.
+#
+# Traces, metrics and logs are passed on as they arrive. A resource that
+# already names its service, host or environment keeps them.
+#
+# The receiver has no authentication: whoever can reach its port can write
+# into the workspace. So it listens on this machine only, by default. Open it
+# to other machines (0.0.0.0) only on a network you trust. The Helm chart does
+# not expose it: a pod that loads this preset listens where nothing reaches it.
+#
+# Settings:
+#   STRUCT_OTLP_GRPC_ENDPOINT   default 127.0.0.1:4317
+#   STRUCT_OTLP_HTTP_ENDPOINT   default 127.0.0.1:4318
+#   STRUCT_OTLP_SERVICE_NAME    default unknown_service; only for what arrives
+#                               without a service.name
+
+receivers:
+  otlp/apps:
+    protocols:
+      grpc:
+        endpoint: ${env:STRUCT_OTLP_GRPC_ENDPOINT:-127.0.0.1:4317}
+      http:
+        endpoint: ${env:STRUCT_OTLP_HTTP_ENDPOINT:-127.0.0.1:4318}
+
+processors:
+  resource/otlp:
+    attributes:
+      - key: service.name
+        value: ${env:STRUCT_OTLP_SERVICE_NAME:-unknown_service}
+        action: insert
+
+service:
+  pipelines:
+    traces/otlp:
+      receivers: [otlp/apps]
+      processors: [memory_limiter, resource/otlp, resource_detection/struct]
+      exporters: [otlp_http/struct]
+    metrics/otlp:
+      receivers: [otlp/apps]
+      processors: [memory_limiter, resource/otlp, resource_detection/struct]
+      exporters: [otlp_http/struct]
+    logs/otlp:
+      receivers: [otlp/apps]
+      processors: [memory_limiter, resource/otlp, resource_detection/struct]
+      exporters: [otlp_http/struct]

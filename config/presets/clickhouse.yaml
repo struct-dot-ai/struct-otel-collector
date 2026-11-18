@@ -1,0 +1,83 @@
+# Preset: a self-hosted ClickHouse server's metrics (queries, inserts, merges,
+# parts, memory, disks, replication queues, ZooKeeper or Keeper sessions),
+# scraped from the server's Prometheus endpoint.
+#
+# The endpoint is off until the server config has a <prometheus> section
+# (port 9363, endpoint /metrics, with metrics, events and asynchronous_metrics
+# switched on). For ClickHouse Cloud no collector is needed.
+#
+# A server exposes a few thousand series, and most of them never move: every
+# profile event and every error code is a counter, used or not, and the
+# asynchronous metrics repeat the host's processor time for each core. One idle
+# server gave 2,277 series on 25.8 and 3,378 on 26.11. This preset keeps a
+# chosen set of about 160, listed by subject below. To keep more, give
+# STRUCT_CLICKHOUSE_EXTRA_METRICS a regular expression of metric names.
+#
+# Settings:
+#   STRUCT_CLICKHOUSE_ENDPOINT        default localhost:9363
+#   STRUCT_CLICKHOUSE_SCHEME          default http
+#   STRUCT_CLICKHOUSE_INTERVAL        default 60s
+#   STRUCT_CLICKHOUSE_SERVICE_NAME    default clickhouse
+#   STRUCT_CLICKHOUSE_EXTRA_METRICS   default none; more metric names to keep,
+#                                     as one regular expression that must match
+#                                     the whole name, for example
+#                                     ClickHouseErrorMetric_.+ for the error
+#                                     counters or .+ for everything
+
+receivers:
+  prometheus/clickhouse:
+    config:
+      scrape_configs:
+        - job_name: ${env:STRUCT_CLICKHOUSE_SERVICE_NAME:-clickhouse}
+          scrape_interval: ${env:STRUCT_CLICKHOUSE_INTERVAL:-60s}
+          scheme: ${env:STRUCT_CLICKHOUSE_SCHEME:-http}
+          metrics_path: /metrics
+          static_configs:
+            - targets: ["${env:STRUCT_CLICKHOUSE_ENDPOINT:-localhost:9363}"]
+          # A series is kept when one of these rules marks it. Each rule's
+          # expression must match the whole metric name.
+          metric_relabel_configs:
+            # The server and its tables.
+            - {source_labels: [__name__], regex: "ClickHouseAsyncMetrics_(Uptime|NumberOfDatabases|NumberOfTables|MaxPartCountForPartition|TotalBytesOfMergeTreeTables|TotalRowsOfMergeTreeTables|TotalPartsOfMergeTreeTables)", target_label: __tmp_struct_keep, replacement: "1"}
+            - {source_labels: [__name__], regex: "ClickHouseMetrics_(VersionInteger|IsServerShuttingDown|ReadonlyReplica|ReadonlyDisks|BrokenDisks|GlobalThread|GlobalThreadActive)", target_label: __tmp_struct_keep, replacement: "1"}
+            - {source_labels: [__name__], regex: "ClickHouseProfileEvents_(LogFatal|LogError|LogWarning)|ClickHouseErrorMetric_ALL", target_label: __tmp_struct_keep, replacement: "1"}
+            # Memory.
+            - {source_labels: [__name__], regex: "ClickHouseAsyncMetrics_(MemoryResident|MemoryVirtual|CGroupMemoryUsed|CGroupMemoryTotal|OSMemoryAvailable|OSMemoryTotal)", target_label: __tmp_struct_keep, replacement: "1"}
+            - {source_labels: [__name__], regex: "ClickHouseMetrics_(MemoryTracking|MergesMutationsMemoryTracking)", target_label: __tmp_struct_keep, replacement: "1"}
+            - {source_labels: [__name__], regex: "ClickHouseProfileEvents_(QueryMemoryLimitExceeded|MemoryOvercommitWaitTimeMicroseconds)", target_label: __tmp_struct_keep, replacement: "1"}
+            # Processor and disks, as the server sees them. Per-core and per-device series are left out.
+            - {source_labels: [__name__], regex: "ClickHouseAsyncMetrics_(LoadAverage1|OSUserTimeNormalized|OSSystemTimeNormalized|OSIOWaitTimeNormalized|FilesystemMainPath(Available|Total|Used)Bytes|FilesystemLogsPathAvailableBytes)", target_label: __tmp_struct_keep, replacement: "1"}
+            - {source_labels: [__name__], regex: "ClickHouseAsyncMetrics_Disk(Available|Total|Used|Unreserved)_.+", target_label: __tmp_struct_keep, replacement: "1"}
+            - {source_labels: [__name__], regex: "ClickHouseMetrics_(DiskSpaceReservedForMerge|OpenFileForRead|OpenFileForWrite)", target_label: __tmp_struct_keep, replacement: "1"}
+            - {source_labels: [__name__], regex: "ClickHouseProfileEvents_(OSCPUVirtualTimeMicroseconds|OSCPUWaitMicroseconds|OSIOWaitMicroseconds|DiskReadElapsedMicroseconds|DiskWriteElapsedMicroseconds|ReadCompressedBytes)", target_label: __tmp_struct_keep, replacement: "1"}
+            # Queries and inserts.
+            - {source_labels: [__name__], regex: "ClickHouseMetrics_(Query|PendingAsyncInsert|AsynchronousInsertQueueSize|AsynchronousInsertQueueBytes|DelayedInserts)", target_label: __tmp_struct_keep, replacement: "1"}
+            - {source_labels: [__name__], regex: "ClickHouseProfileEvents_(Query|SelectQuery|InsertQuery|FailedQuery|FailedSelectQuery|FailedInsertQuery|QueryTimeMicroseconds|SelectQueryTimeMicroseconds|InsertQueryTimeMicroseconds|OtherQueryTimeMicroseconds)", target_label: __tmp_struct_keep, replacement: "1"}
+            - {source_labels: [__name__], regex: "ClickHouseProfileEvents_(SelectedRows|SelectedBytes|SelectedParts|SelectedMarks|InsertedRows|InsertedBytes|AsyncInsertQuery|AsyncInsertBytes|FailedAsyncInsertQuery|DelayedInserts|RejectedInserts|DelayedInsertsMilliseconds|SlowRead|ReadBackoff)", target_label: __tmp_struct_keep, replacement: "1"}
+            # Merges, mutations and parts.
+            - {source_labels: [__name__], regex: "ClickHouseMetrics_(Merge|PartMutation|Move|PartsActive|PartsOutdated|PartsPreActive|PartsDeleting|Background(MergesAndMutations|Fetches|Schedule|Common)Pool(Task|Size))", target_label: __tmp_struct_keep, replacement: "1"}
+            - {source_labels: [__name__], regex: "ClickHouseProfileEvents_(Merge|MergedRows|MergedUncompressedBytes|MergeTotalMilliseconds|MutatedRows|MutationTotalMilliseconds|MergeTreeDataWriterRows|MergeTreeDataWriterCompressedBytes)", target_label: __tmp_struct_keep, replacement: "1"}
+            # Replication, distributed tables and Keeper.
+            - {source_labels: [__name__], regex: "ClickHouseAsyncMetrics_Replicas(MaxAbsoluteDelay|MaxRelativeDelay|MaxQueueSize|SumQueueSize|MaxInsertsInQueue|SumInsertsInQueue|MaxMergesInQueue|SumMergesInQueue)", target_label: __tmp_struct_keep, replacement: "1"}
+            - {source_labels: [__name__], regex: "ClickHouseMetrics_(ReplicatedFetch|ReplicatedSend|ReplicatedChecks|ZooKeeperSession|ZooKeeperRequest|ZooKeeperWatch|EphemeralNode|KeeperAliveConnections|KeeperOutstandingRequests)", target_label: __tmp_struct_keep, replacement: "1"}
+            - {source_labels: [__name__], regex: "ClickHouseMetrics_(DistributedSend|DistributedFilesToInsert|DistributedBytesToInsert|BrokenDistributedFilesToInsert)", target_label: __tmp_struct_keep, replacement: "1"}
+            - {source_labels: [__name__], regex: "ClickHouseProfileEvents_(ReplicatedPartFetches|ReplicatedPartFailedFetches|ReplicatedPartMerges|ReplicatedPartChecksFailed|ReplicatedDataLoss|DataAfterMergeDiffersFromReplica)", target_label: __tmp_struct_keep, replacement: "1"}
+            - {source_labels: [__name__], regex: "ClickHouseProfileEvents_(ZooKeeperTransactions|ZooKeeperHardwareExceptions|ZooKeeperUserExceptions|ZooKeeperWaitMicroseconds|DistributedConnectionFailTry|DistributedConnectionFailAtAll)", target_label: __tmp_struct_keep, replacement: "1"}
+            # Connections and network.
+            - {source_labels: [__name__], regex: "ClickHouseMetrics_(TCPConnection|HTTPConnection|MySQLConnection|PostgreSQLConnection|InterserverConnection)", target_label: __tmp_struct_keep, replacement: "1"}
+            - {source_labels: [__name__], regex: "ClickHouseAsyncMetrics_(TCPRejectedConnections|HTTPRejectedConnections)", target_label: __tmp_struct_keep, replacement: "1"}
+            - {source_labels: [__name__], regex: "ClickHouseProfileEvents_(NetworkReceiveBytes|NetworkSendBytes)", target_label: __tmp_struct_keep, replacement: "1"}
+            # Caches and object storage.
+            - {source_labels: [__name__], regex: "ClickHouseMetrics_(MarkCacheBytes|UncompressedCacheBytes|QueryCacheBytes|QueryCacheEntries|FilesystemCacheSize|FilesystemCacheSizeLimit|S3Requests)", target_label: __tmp_struct_keep, replacement: "1"}
+            - {source_labels: [__name__], regex: "ClickHouseProfileEvents_(MarkCacheHits|MarkCacheMisses|UncompressedCacheHits|UncompressedCacheMisses|QueryCacheHits|QueryCacheMisses|S3ReadRequestsErrors|S3WriteRequestsErrors)", target_label: __tmp_struct_keep, replacement: "1"}
+            # More, by setting. The default matches no metric.
+            - {source_labels: [__name__], regex: "${env:STRUCT_CLICKHOUSE_EXTRA_METRICS:-none}", target_label: __tmp_struct_keep, replacement: "1"}
+            - {source_labels: [__tmp_struct_keep], regex: "1", action: keep}
+            - {regex: __tmp_struct_keep, action: labeldrop}
+
+service:
+  pipelines:
+    metrics/clickhouse:
+      receivers: [prometheus/clickhouse]
+      processors: [memory_limiter, resource_detection/struct]
+      exporters: [otlp_http/struct]

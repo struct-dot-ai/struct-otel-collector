@@ -1,0 +1,5 @@
+# The single-file installer built by scripts/build-installer.py.
+dist/
+.venv/
+__pycache__/
+.pytest_cache/

@@ -1,0 +1,31 @@
+# Preset: a Redpanda broker's own metrics (under-replicated and unavailable
+# partitions, disk space, request latency and errors, consumer group lag when
+# the cluster has it switched on), scraped from /public_metrics.
+#
+# Redpanda serves metrics on its Admin API listener and has no metrics-only
+# listener. Run this collector on the broker's host and keep the Admin API on
+# loopback; do not widen that listener to let something else scrape it.
+#
+# Settings:
+#   STRUCT_REDPANDA_ENDPOINT       default localhost:9644
+#   STRUCT_REDPANDA_SCHEME         default http
+#   STRUCT_REDPANDA_INTERVAL       default 60s
+#   STRUCT_REDPANDA_SERVICE_NAME   default redpanda
+
+receivers:
+  prometheus/redpanda:
+    config:
+      scrape_configs:
+        - job_name: ${env:STRUCT_REDPANDA_SERVICE_NAME:-redpanda}
+          scrape_interval: ${env:STRUCT_REDPANDA_INTERVAL:-60s}
+          scheme: ${env:STRUCT_REDPANDA_SCHEME:-http}
+          metrics_path: /public_metrics
+          static_configs:
+            - targets: ["${env:STRUCT_REDPANDA_ENDPOINT:-localhost:9644}"]
+
+service:
+  pipelines:
+    metrics/redpanda:
+      receivers: [prometheus/redpanda]
+      processors: [memory_limiter, resource_detection/struct]
+      exporters: [otlp_http/struct]
