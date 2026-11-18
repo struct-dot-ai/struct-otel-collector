@@ -29,7 +29,7 @@ argument: it travels in the environment, in a root-only file, or on standard inp
 
 ```bash
 read -rs STRUCT_INGEST_KEY && export STRUCT_INGEST_KEY   # paste the key; nothing is shown
-curl -fsSL https://github.com/struct-dot-ai/struct-otel-collector/releases/latest/download/struct-otel-collector-install.sh \
+curl -fsSL https://struct.ai/install/collector.sh \
   | sudo --preserve-env=STRUCT_INGEST_KEY bash -s -- --presets hosts --environment production
 ```
 
@@ -37,12 +37,14 @@ Where `sudo` refuses `--preserve-env`, put the key in a root-only file first:
 
 ```bash
 sudo sh -c 'umask 077 && cat > /root/struct-ingest-key'   # paste the key, then Ctrl-D
-curl -fsSL https://github.com/struct-dot-ai/struct-otel-collector/releases/latest/download/struct-otel-collector-install.sh \
+curl -fsSL https://struct.ai/install/collector.sh \
   | sudo bash -s -- --presets hosts --environment production --ingest-key-file /root/struct-ingest-key
 ```
 
-To check the download before running it, fetch `struct-otel-collector-install.sh.sha256`
-from the same release and compare it with `sha256sum`. The installer checks the
+`https://struct.ai/install/collector.sh` redirects to the installer of the
+[latest release](https://github.com/struct-dot-ai/struct-otel-collector/releases/latest). To check the download
+before running it, fetch `struct-otel-collector-install.sh.sha256` from that release and compare it
+with `sha256sum`. The installer checks the
 SHA-256 of the upstream collector it downloads. `--dry-run` shows what it would do,
 `--uninstall` removes it, and `--help` lists every option and preset.
 
