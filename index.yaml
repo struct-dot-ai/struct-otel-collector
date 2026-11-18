@@ -1,0 +1,19 @@
+{
+  "apiVersion": "v1",
+  "entries": {
+    "struct-otel-collector": [
+      {
+        "apiVersion": "v2",
+        "name": "struct-otel-collector",
+        "version": "0.165.0-1",
+        "appVersion": "0.165.0-1",
+        "description": "'The Struct Collector for Kubernetes: one collector per node for node,",
+        "type": "application",
+        "digest": "e8e0af2450262b556b49b77d6c558b942be9e7c35cfe9278337c525ff274c303",
+        "urls": [
+          "https://struct-dot-ai.github.io/struct-otel-collector/struct-otel-collector-0.165.0-1.tgz"
+        ]
+      }
+    ]
+  }
+}
