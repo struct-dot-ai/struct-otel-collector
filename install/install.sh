@@ -6,7 +6,7 @@
 # Struct's config and the presets you choose, and runs it as the
 # struct-otel-collector systemd unit under its own unprivileged user.
 #
-#   STRUCT_INGEST_KEY=pk-... ./install.sh --presets hosts,redis --environment production
+#   STRUCT_INGEST_KEY=ik-... ./install.sh --presets hosts,redis --environment production
 #
 # Preset settings (see the header of each preset file) are read from this
 # script's environment, from a --settings-file, or given with --set, and written
@@ -47,7 +47,7 @@ embedded_config() { return 1; }
 
 usage() {
   cat <<EOF
-Usage: STRUCT_INGEST_KEY=pk-... install.sh [options]
+Usage: STRUCT_INGEST_KEY=ik-... install.sh [options]
 
   --presets a,b,c         Integration presets to switch on (default: hosts)
   --environment NAME      Deployment environment to stamp on everything sent
