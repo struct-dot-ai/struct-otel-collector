@@ -10,7 +10,8 @@ imagePullSecrets: []
 
 ingest:
   url: https://ingest.struct.ai
-  # The workspace's ingest key (pk-...). Stored in a Secret this chart creates.
+  # The workspace's ingest key (ik-...; an older key starting with pk- works too). Stored in a
+  # Secret this chart creates.
   key: ""
   # Or the name of a Secret you manage, holding the key under existingSecretKey.
   existingSecret: ""

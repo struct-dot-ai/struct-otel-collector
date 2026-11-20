@@ -14,7 +14,8 @@
 # The one list no preset may redefine is service.extensions.
 #
 # Settings (environment variables):
-#   STRUCT_INGEST_KEY                    required; the workspace's ingest key (pk-...)
+#   STRUCT_INGEST_KEY                    required; the workspace's ingest key (ik-...; an older
+#                                        key starting with pk- works too)
 #   STRUCT_INGEST_URL                    default https://ingest.struct.ai
 #   OTEL_RESOURCE_ATTRIBUTES             optional, for example
 #                                        deployment.environment.name=production,deployment.environment=production
